@@ -84,7 +84,19 @@ jobs:
             echo 'ARCHIVE_ALREADY_PRESENT'
             exit 0
           fi
-          test "$(git ls-files -- historical/ | grep -cE '\\.deb
+          test "$(git ls-files -- historical/ | grep -cE '[.]deb
+          git commit -m 'archive: preserve all 1079 historical DuoFace DEBs without LFS [skip ci]'
+          git push origin HEAD:main
+          remote="$(git ls-remote origin refs/heads/main | cut -f1)"
+          test "$remote" = "$(git rev-parse HEAD)"
+          echo "ARCHIVE_PUSH_AND_READBACK_PASS=$remote"
+)" = 1079
+          git commit -m 'archive: preserve all 1079 historical DuoFace DEBs without LFS [skip ci]'
+          git push origin HEAD:main
+          remote="$(git ls-remote origin refs/heads/main | cut -f1)"
+          test "$remote" = "$(git rev-parse HEAD)"
+          echo "ARCHIVE_PUSH_AND_READBACK_PASS=$remote"
+)" = 1079
           git commit -m 'archive: preserve all 1079 historical DuoFace DEBs without LFS [skip ci]'
           git push origin HEAD:main
           remote="$(git ls-remote origin refs/heads/main | cut -f1)"
