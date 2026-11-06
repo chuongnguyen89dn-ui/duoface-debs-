@@ -1,0 +1,69 @@
+name: Archive two main-only historical DEBs (immutable, no LFS)
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/archive-main-only-debs.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: duoface-archive-main-only
+  cancel-in-progress: false
+jobs:
+  archive-main-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Fetch immutable main source snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth=1 --branch main https://github.com/chuongnguyen89dn-ui/Duoface.git "$RUNNER_TEMP/duoface-main"
+          git -C "$RUNNER_TEMP/duoface-main" fetch --no-tags --depth=1 origin ed358e8fc9d2c409fc31f3d256421b8bf489894a || \
+            git -C "$RUNNER_TEMP/duoface-main" fetch --no-tags --depth=80 origin main
+          git -C "$RUNNER_TEMP/duoface-main" checkout --detach ed358e8fc9d2c409fc31f3d256421b8bf489894a
+      - name: Preserve main-only DEB bytes and manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,os,shutil
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'duoface-main'
+          names=[
+            'sideplay/audit/com.carplaypro.speed_0.9.97_iphoneos-arm64.deb',
+            'sideplay/audit/com.chou.googlemaps.vietmap_0.2.8_iphoneos-arm64.deb',
+          ]
+          records=['# Original source: Duoface main ed358e8fc9d2c409fc31f3d256421b8bf489894a','path\tbytes\tsha256']
+          total=0
+          for name in names:
+              src=root/name
+              dst=Path('historical-main')/name
+              dst.parent.mkdir(parents=True,exist_ok=True)
+              shutil.copyfile(src,dst)
+              before=src.read_bytes()
+              after=dst.read_bytes()
+              assert before==after,name
+              size=len(before)
+              total+=size
+              records.append(name+'\t'+str(size)+'\t'+hashlib.sha256(before).hexdigest())
+          assert total==4109458,total
+          Path('MAIN_ONLY_MANIFEST.tsv').write_text('\n'.join(records)+'\n')
+          print('ARCHIVED_TWO_MAIN_ONLY_DEBS',len(names),total)
+          PY
+      - name: Commit additional main branch legacy artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- historical-main MAIN_ONLY_MANIFEST.tsv
+          test "$(git ls-files -- historical-main/ | grep -cE '[.]deb$')" = 2
+          git commit -m 'archive: retain two main-only legacy DEBs before cleanup [skip ci]'
+          git push origin HEAD:main
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$(git rev-parse HEAD)"
+          echo MAIN_ONLY_BYTES_ARCHIVED
