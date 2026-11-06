@@ -1,0 +1,92 @@
+name: Archive historical DuoFace DEBs once (no LFS, no history rewrite)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/archive-historical-debs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: duoface-historical-deb-migration
+  cancel-in-progress: false
+
+jobs:
+  archive-historical:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout the archive repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Clone pinned DuoFace source tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth=1 --single-branch --branch spec-main \
+            https://github.com/chuongnguyen89dn-ui/Duoface.git "$RUNNER_TEMP/duoface-source"
+          actual="$(git -C "$RUNNER_TEMP/duoface-source" rev-parse HEAD)"
+          test "$actual" = 'efdd4ebeb166864e676dcc059b12145111b3174f'
+          echo "PINNED_SOURCE_COMMIT=$actual"
+
+      - name: Copy every tracked DEB without changing its original pathname or bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,os,shutil,subprocess
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])/'duoface-source'
+          entries=subprocess.check_output(['git','-C',str(root),'ls-files','-z']).split(b'\0')
+          names=sorted(os.fsdecode(x) for x in entries if x.endswith(b'.deb'))
+          size=sum((root/name).stat().st_size for name in names)
+          assert len(names)==1079,(len(names),'expected 1079 historical DEBs')
+          assert size==440062162,(size,'expected 440062162 bytes')
+          out=Path('historical')
+          manifest=['# DuoFace original source: efdd4ebeb166864e676dcc059b12145111b3174f',
+                    '# Original tracked DEB count: 1079',
+                    '# Original tracked DEB byte size: 440062162',
+                    'path\tbytes\tsha256']
+          def sha256(p):
+              h=hashlib.sha256()
+              with p.open('rb') as f:
+                  for chunk in iter(lambda:f.read(1024*1024),b''):h.update(chunk)
+              return h.hexdigest()
+          for name in names:
+              source=root/name
+              target=out/name
+              target.parent.mkdir(parents=True,exist_ok=True)
+              if not target.exists():
+                  shutil.copyfile(source,target)
+              assert source.stat().st_size==target.stat().st_size,name
+              original=sha256(source)
+              assert sha256(target)==original,name
+              manifest.append(name+'\t'+str(source.stat().st_size)+'\t'+original)
+          Path('MANIFEST.tsv').write_text('\n'.join(manifest)+'\n')
+          assert len(list(out.rglob('*.deb')))==len(names)
+          print('ARCHIVE_BEFORE_AFTER_VERIFIED',len(names),size)
+          PY
+
+      - name: Commit historical archive exactly once and verify published branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- historical MANIFEST.tsv
+          if git diff --cached --quiet; then
+            echo 'ARCHIVE_ALREADY_PRESENT'
+            exit 0
+          fi
+          test "$(git ls-files historical -- '*.deb' | wc -l | tr -d ' ')" = 1079
+          git commit -m 'archive: preserve all 1079 historical DuoFace DEBs without LFS [skip ci]'
+          git push origin HEAD:main
+          remote="$(git ls-remote origin refs/heads/main | cut -f1)"
+          test "$remote" = "$(git rev-parse HEAD)"
+          echo "ARCHIVE_PUSH_AND_READBACK_PASS=$remote"
