@@ -1,0 +1,52 @@
+name: Archive verified QA181 b0probe1 signed DuoFace DEB
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/archive-qa181-b0probe1.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: duoface-qa181-b0probe1-immutable-archive
+  cancel-in-progress: false
+jobs:
+  archive:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Download exact signed QA181 from completed source CI archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          FILE='com.duoface.jb.embedded_0.0.181~b0probe1_iphoneos-arm64.deb'
+          EXPECTED='85377a2bba3c572b2b26b783f72af54af6ab774119f6c45f8bf4a3b1f9058714'
+          SOURCE='https://raw.githubusercontent.com/chuongnguyen89dn-ui/Duoface/8ebac6f25d2602079c51117e0143a4f3227ba14d/sideplay/jb-embedded-appbridge/evidence/runs/42237345803/'"$FILE"
+          test ! -e "debs/$FILE"
+          mkdir -p debs
+          curl -fLsS --retry 4 --max-time 120 "$SOURCE" -o "debs/$FILE"
+          printf '%s  %s\n' "$EXPECTED" "debs/$FILE" | sha256sum -c -
+          test "$(wc -c < "debs/$FILE" | tr -d ' ')" = '1250596'
+          test "$(dpkg-deb -f "debs/$FILE" Package)" = 'com.duoface.jb.embedded'
+          test "$(dpkg-deb -f "debs/$FILE" Version)" = '0.0.181~b0probe1'
+          test "$(dpkg-deb -f "debs/$FILE" Architecture)" = 'iphoneos-arm64'
+          printf '%s  %s\n' "$EXPECTED" "$FILE" > "debs/$FILE.sha256"
+          echo QA181_SIGNED_ORIGINAL_ARCHIVE_INPUT_SHA_SIZE_PACKAGE_PASS
+      - name: Commit immutable QA181 and verify remote git object
+        shell: bash
+        run: |
+          set -euo pipefail
+          FILE='com.duoface.jb.embedded_0.0.181~b0probe1_iphoneos-arm64.deb'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- "debs/$FILE" "debs/$FILE.sha256"
+          git diff --cached --quiet && { echo 'Nothing to archive'; exit 1; }
+          git commit -m 'archive: QA181 b0probe1 exact signed CI DEB [skip ci]'
+          git push origin HEAD:main
+          git fetch --no-tags origin main
+          test "$(git rev-parse HEAD)" = "$(git rev-parse FETCH_HEAD)"
+          sha256sum -c <(sed "s@  $FILE@  debs/$FILE@" "debs/$FILE.sha256")
+          echo QA181_SIGNED_DEBS_REPO_COMMIT_VERIFIED
