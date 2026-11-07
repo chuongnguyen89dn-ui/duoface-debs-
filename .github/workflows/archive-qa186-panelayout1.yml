@@ -1,0 +1,50 @@
+name: Archive verified QA186 panelayout1 exact signed DEB
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/archive-qa186-panelayout1.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: duoface-qa186-panelayout1-immutable-archive
+  cancel-in-progress: false
+jobs:
+  archive:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && github.event.head_commit.message == 'archive: QA186 signed verified bytes once')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Archive exact independently verified signed candidate
+        run: |
+          set -euo pipefail
+          FILE='com.duoface.jb.embedded_0.0.186~panelayout1_iphoneos-arm64.deb'
+          SHA='68adadb1e6b82aaa7a93920ff417ecc8f23f1187b9b544cd5d0eedc8be25ba1e'
+          SOURCE='https://raw.githubusercontent.com/chuongnguyen89dn-ui/Duoface/ab29c4e62ddba5ceb52e7a21b0319efcbfa75037/sideplay/jb-embedded-appbridge/evidence/runs/42346900184/'"$FILE"
+          test ! -e "debs/$FILE"
+          mkdir -p debs
+          curl -fLsS --retry 4 --max-time 120 "$SOURCE" -o "debs/$FILE"
+          printf '%s  %s\n' "$SHA" "debs/$FILE" | sha256sum -c -
+          test "$(wc -c < "debs/$FILE" | tr -d ' ')" = '1292976'
+          test "$(dpkg-deb -f "debs/$FILE" Package)" = 'com.duoface.jb.embedded'
+          test "$(dpkg-deb -f "debs/$FILE" Version)" = '0.0.186~panelayout1'
+          test "$(dpkg-deb -f "debs/$FILE" Architecture)" = 'iphoneos-arm64'
+          printf '%s  %s\n' "$SHA" "$FILE" > "debs/$FILE.sha256"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- "debs/$FILE" "debs/$FILE.sha256"
+          git commit -m 'archive: QA186 panelayout1 unchanged signed DEB [skip ci]'
+          for attempt in 1 2 3; do
+            git fetch --no-tags origin main
+            git rebase origin/main
+            if git push origin HEAD:main; then break; fi
+            test "$attempt" != 3
+          done
+          git fetch --no-tags origin main
+          git show "FETCH_HEAD:debs/$FILE" | sha256sum | grep -F "$SHA"
+          echo 'QA186_IMMUTABLE_SIGNED_ARCHIVE_REMOTE_VERIFIED'
