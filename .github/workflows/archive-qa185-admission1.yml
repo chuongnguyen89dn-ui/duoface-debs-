@@ -1,9 +1,6 @@
 name: Archive user-authorized QA185 admission1 exact signed DEB
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths: ['.github/workflows/archive-qa185-admission1.yml']
 permissions:
   contents: write
 concurrency:
