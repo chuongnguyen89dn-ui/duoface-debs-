@@ -1,8 +1,5 @@
 name: Archive verified QA186 panelayout1 exact signed DEB
 on:
-  push:
-    branches: [main]
-    paths: ['.github/workflows/archive-qa186-panelayout1.yml']
   workflow_dispatch:
 permissions:
   contents: write
@@ -11,9 +8,6 @@ concurrency:
   cancel-in-progress: false
 jobs:
   archive:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'push' && github.event.head_commit.message == 'archive: QA186 signed verified bytes once')
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
