@@ -1,0 +1,48 @@
+name: Archive user-authorized QA185 admission1 exact signed DEB
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/archive-qa185-admission1.yml']
+permissions:
+  contents: write
+concurrency:
+  group: duoface-qa185-admission1-immutable-archive
+  cancel-in-progress: false
+jobs:
+  archive:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Archive unchanged source-verified signed candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          FILE='com.duoface.jb.embedded_0.0.185~admission1_iphoneos-arm64.deb'
+          SHA='4c4711ac9f048fa1dd63de6e7757a34c6abc59d30e76a5405d03393f96efde30'
+          SOURCE='https://raw.githubusercontent.com/chuongnguyen89dn-ui/Duoface/c996249573c244aff1656ce636eea4d4aa892b27/sideplay/jb-embedded-appbridge/evidence/runs/42343166133/'"$FILE"
+          test ! -e "debs/$FILE"
+          mkdir -p debs
+          curl -fLsS --retry 4 --max-time 120 "$SOURCE" -o "debs/$FILE"
+          printf '%s  %s\n' "$SHA" "debs/$FILE" | sha256sum -c -
+          test "$(wc -c < "debs/$FILE" | tr -d ' ')" = '1291416'
+          test "$(dpkg-deb -f "debs/$FILE" Package)" = 'com.duoface.jb.embedded'
+          test "$(dpkg-deb -f "debs/$FILE" Version)" = '0.0.185~admission1'
+          test "$(dpkg-deb -f "debs/$FILE" Architecture)" = 'iphoneos-arm64'
+          printf '%s  %s\n' "$SHA" "$FILE" > "debs/$FILE.sha256"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- "debs/$FILE" "debs/$FILE.sha256"
+          git commit -m 'archive: QA185 admission1 unchanged verified signed DEB [skip ci]'
+          for attempt in 1 2 3; do
+            git fetch --no-tags origin main
+            git rebase origin/main
+            if git push origin HEAD:main; then break; fi
+            test "$attempt" != 3
+          done
+          git fetch --no-tags origin main
+          git show "FETCH_HEAD:debs/$FILE" | sha256sum | grep -F "$SHA"
+          echo 'QA185_IMMUTABLE_SIGNED_ARCHIVE_REMOTE_VERIFIED'
